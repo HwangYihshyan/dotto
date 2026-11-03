@@ -1,3 +1,5 @@
+![CI](https://github.com/HwangYihshyan/dotto/actions/workflows/ci.yml/badge.svg)
+
 # Dotto — ステップ1：ローカル環境
 
 Go API・PostgreSQL・Redis を Docker Compose でまとめて起動する土台です。
