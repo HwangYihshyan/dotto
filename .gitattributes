@@ -1,0 +1,2 @@
+# Windows で編集しても、リポジトリ内の改行コードは LF に統一する
+* text=auto eol=lf

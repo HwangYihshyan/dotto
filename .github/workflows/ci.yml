@@ -1,0 +1,98 @@
+# CI：push と Pull Request のたびに「整形・静的解析 → テスト → Docker ビルド」を自動で行う。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 同じブランチに続けて push したら、古い実行はキャンセルして無駄を省く
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# このワークフローに与える権限は最小限（コードを読むだけ）
+permissions:
+  contents: read
+
+jobs:
+  # ---- 1. 整形と静的解析 ----
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod # go.mod に書いたバージョンを使う（ローカルと揃う）
+
+      - name: gofmt（整形されていないファイルがあれば失敗）
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt が必要なファイル:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go mod tidy（go.mod / go.sum が最新か）
+        run: go mod tidy -diff
+
+      - name: go vet
+        run: go vet ./...
+
+  # ---- 2. 単体テスト + 統合テスト ----
+  test:
+    runs-on: ubuntu-latest
+
+    # ジョブの横で本物の PostgreSQL と Redis を立ち上げる
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: dotto
+          POSTGRES_PASSWORD: dotto
+          POSTGRES_DB: dotto
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dotto -d dotto"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://dotto:dotto@localhost:5432/dotto?sslmode=disable
+      REDIS_ADDR: localhost:6379
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: 単体テスト（-race でデータ競合も検出）
+        run: go test ./... -race -count=1
+
+      - name: テーブルを作成（ローカルの db/init と同じ SQL を流す）
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/init/001_init.sql
+
+      - name: 統合テスト（本物の DB / Redis を使う）
+        run: go test -tags=integration ./internal/integration/... -count=1 -v
+
+  # ---- 3. Docker イメージがビルドできるか ----
+  build:
+    runs-on: ubuntu-latest
+    needs: [lint, test] # 上の2つが通ったときだけ実行
+    steps:
+      - uses: actions/checkout@v5
+      - name: docker build
+        run: docker build -t dotto-api:ci .
