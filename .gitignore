@@ -1,0 +1,10 @@
+# 秘密情報
+.env
+
+# ビルド成果物
+/bin/
+
+# エディタ・OS
+.idea/
+.vscode/
+.DS_Store
