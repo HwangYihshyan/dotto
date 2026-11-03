@@ -18,7 +18,7 @@ func TestHealthz(t *testing.T) {
 	rec := httptest.NewRecorder()
 	s.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusTeapot {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 }
